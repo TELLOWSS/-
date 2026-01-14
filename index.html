@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>스마트 온보딩 - 건설현장 근로자 관리</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Noto Sans KR', sans-serif;
+        background-color: #f1f5f9; /* Slate 100 */
+        margin: 0;
+      }
+      /* A4 Print Styles */
+      @media print {
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
+        
+        /* Critical Fix: Reset layout constraints for printing */
+        html, body, #root, main {
+          width: 100%;
+          height: auto !important;
+          min-height: auto !important;
+          overflow: visible !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+          display: block !important; /* Ensure block layout for flow */
+        }
+
+        .no-print {
+          display: none !important;
+        }
+
+        /* Hide the overlay buttons specifically */
+        .no-print-overlay {
+          display: none !important;
+        }
+        
+        .print-only {
+          display: block !important;
+          position: relative !important; /* Changed from absolute to allow multi-page flow */
+          width: 100%;
+          height: auto !important;
+          z-index: 9999;
+        }
+
+        /* Ensure A4 dimensions */
+        .a4-page {
+          width: 210mm !important;
+          height: 297mm !important;
+          page-break-after: always;
+          margin: 0 auto;
+          background: white;
+          padding: 15mm;
+          box-sizing: border-box;
+          border: none !important;
+          box-shadow: none !important;
+        }
+      }
+      
+      .print-only {
+        display: none;
+      }
+      
+      /* Screen Preview of A4 */
+      .a4-preview {
+        width: 210mm;
+        height: 297mm;
+        background: white;
+        margin: 0 auto;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        padding: 15mm;
+        box-sizing: border-box;
+        overflow: hidden;
+        transform-origin: top center;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "uuid": "https://esm.sh/uuid@^13.0.0",
+    "html2canvas": "https://esm.sh/html2canvas@1.4.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "Smart Onboarding (스마트 온보딩)",
+  "description": "건설현장 신규 근로자 개인정보 및 이수증 통합 관리 및 A4 출력 최적화 프로그램",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
