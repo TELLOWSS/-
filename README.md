@@ -6,7 +6,7 @@
 
 This contains everything you need to run your app locally.
 
-View your app in AI Studio: https://ai.studio/apps/drive/17_MYX3MHit7YOJpF3A-l9g1mwhKWWUEr
+AI Studio 공유 링크는 만료되거나 권한에 따라 404가 발생할 수 있습니다. 로컬 실행(`npm run dev`)을 기본 경로로 사용하세요.
 
 ## Run Locally
 

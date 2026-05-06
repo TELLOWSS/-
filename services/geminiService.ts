@@ -1,6 +1,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ExtractedDocumentInfo } from "../types";
 
+const MODEL_CANDIDATES = [
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite'
+];
+
 const SYSTEM_INSTRUCTION = `
 당신은 건설 현장 서류(신분증, 이수증) 인식 및 분류 전문가입니다.
 이미지에는 **하나 또는 여러 개의 문서**가 포함되어 있을 수 있습니다 (예: 신분증과 이수증이 나란히 놓여있음).
@@ -28,88 +34,100 @@ export const extractWorkerInfo = async (imageBase64: string): Promise<ExtractedD
   const cleanBase64 = imageBase64.split(',')[1] || imageBase64;
   const ai = new GoogleGenAI({ apiKey });
 
-  let attempt = 0;
-  const maxAttempts = 7; // Increased retries for stability
+  const isQuotaError = (error: any) => {
+    return error?.status === 429 ||
+      error?.code === 429 ||
+      error?.message?.includes('429') ||
+      error?.message?.includes('quota') ||
+      error?.message?.includes('RESOURCE_EXHAUSTED') ||
+      (error?.error && (error.error.code === 429 || error.error.status === 'RESOURCE_EXHAUSTED'));
+  };
 
-  while (attempt < maxAttempts) {
-    try {
-      const timeoutPromise = new Promise<null>((_, reject) => {
-          setTimeout(() => reject(new Error("Request timed out")), 20000);
-      });
+  const isNotFoundError = (error: any) => {
+    return error?.status === 404 ||
+      error?.code === 404 ||
+      error?.message?.includes('NOT_FOUND') ||
+      error?.message?.includes('404') ||
+      error?.message?.toLowerCase?.().includes('model');
+  };
 
-      const apiCallPromise = ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: 'image/jpeg',
-                data: cleanBase64
+  for (const modelName of MODEL_CANDIDATES) {
+    let attempt = 0;
+    const maxAttempts = 4;
+
+    while (attempt < maxAttempts) {
+      try {
+        const timeoutPromise = new Promise<null>((_, reject) => {
+            setTimeout(() => reject(new Error("Request timed out")), 20000);
+        });
+
+        const apiCallPromise = ai.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: cleanBase64
+                }
+              },
+              {
+                text: "Find all ID cards and Safety Certificates in this image. Return them as a JSON list with bounding boxes."
               }
-            },
-            {
-              text: "Find all ID cards and Safety Certificates in this image. Return them as a JSON list with bounding boxes."
-            }
-          ]
-        },
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    type: { type: Type.STRING, enum: ['ID_CARD', 'SAFETY_CERT', 'UNKNOWN'] },
-                    name: { type: Type.STRING },
-                    trade: { type: Type.STRING },
-                    boundingBox: { 
-                        type: Type.ARRAY, 
-                        items: { type: Type.INTEGER },
-                        description: "[ymin, xmin, ymax, xmax] on 0-1000 scale"
-                    }
-                },
-                required: ["type", "name", "boundingBox"]
+            ]
+          },
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                  type: Type.OBJECT,
+                  properties: {
+                      type: { type: Type.STRING, enum: ['ID_CARD', 'SAFETY_CERT', 'UNKNOWN'] },
+                      name: { type: Type.STRING },
+                      trade: { type: Type.STRING },
+                      boundingBox: {
+                          type: Type.ARRAY,
+                          items: { type: Type.INTEGER },
+                          description: "[ymin, xmin, ymax, xmax] on 0-1000 scale"
+                      }
+                  },
+                  required: ["type", "name", "boundingBox"]
+              }
             }
           }
+        });
+
+        const response: any = await Promise.race([apiCallPromise, timeoutPromise]);
+        const text = response.text;
+
+        if (text) {
+          const result = JSON.parse(text);
+          return Array.isArray(result) ? result : [result];
         }
-      });
-
-      const response: any = await Promise.race([apiCallPromise, timeoutPromise]);
-      const text = response.text;
-      
-      if (text) {
-        const result = JSON.parse(text);
-        // Ensure it's always an array
-        return Array.isArray(result) ? result : [result];
-      }
-      return [];
-
-    } catch (error: any) {
-      // Enhanced error detection to catch nested error objects from GoogleGenAI or raw responses
-      const isQuotaError = 
-        error.status === 429 || 
-        error.code === 429 || 
-        error.message?.includes('429') || 
-        error.message?.includes('quota') ||
-        error.message?.includes('RESOURCE_EXHAUSTED') ||
-        (error.error && (error.error.code === 429 || error.error.status === 'RESOURCE_EXHAUSTED'));
-
-      if (isQuotaError && attempt < maxAttempts - 1) {
-        // Exponential backoff starting at 2 seconds
-        const delay = 2000 * Math.pow(2, attempt);
-        console.warn(`Quota limit hit (429). Retrying in ${delay}ms... (Attempt ${attempt + 1}/${maxAttempts})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        attempt++;
-        continue;
-      }
-
-      console.error("Gemini Extraction Error:", JSON.stringify(error, null, 2));
-      if (attempt === maxAttempts - 1 || !isQuotaError) {
         return [];
+
+      } catch (error: any) {
+        if (isNotFoundError(error)) {
+          console.warn(`Model not available: ${modelName}. Trying next model...`);
+          break;
+        }
+
+        if (isQuotaError(error) && attempt < maxAttempts - 1) {
+          const delay = 2000 * Math.pow(2, attempt);
+          console.warn(`Quota limit hit (429) on ${modelName}. Retrying in ${delay}ms... (Attempt ${attempt + 1}/${maxAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          attempt++;
+          continue;
+        }
+
+        console.error("Gemini Extraction Error:", JSON.stringify(error, null, 2));
+        break;
       }
-      attempt++;
     }
   }
+
+  console.error('No available Gemini model could process the request.');
   return [];
 };
