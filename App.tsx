@@ -15,6 +15,8 @@ const generateId = () => {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
 };
 
+const APP_BUILD_MARKER = 'build-2026-05-06-verify-01';
+
 const App: React.FC = () => {
     const LOCAL_WORKERS_KEY = 'hwigang_workers_v1';
     const isApiKeyConfigured = Boolean(process.env.API_KEY);
@@ -747,6 +749,10 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-1.5 text-slate-500">
                       <span className="text-[10px] uppercase font-bold tracking-wider">Project Lead</span>
                       <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-xs">박성훈 부장</span>
+                  </div>
+                  <div className="hidden lg:flex items-center gap-1.5 border-l border-slate-200 pl-4 text-slate-500">
+                      <span className="text-[10px] uppercase font-bold tracking-wider">Build</span>
+                      <span className="font-mono text-[11px] text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{APP_BUILD_MARKER}</span>
                   </div>
               </div>
           </div>
