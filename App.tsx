@@ -251,7 +251,7 @@ const App: React.FC = () => {
         );
 
         return html2canvas(clone, {
-            scale: 2,
+            scale: 3,
             useCORS: true,
             logging: false,
             backgroundColor: '#ffffff',
@@ -280,12 +280,12 @@ const App: React.FC = () => {
 
                 try {
                     const canvas = await renderCloneCanvas(clone);
-                    const imageData = canvas.toDataURL('image/jpeg', 1.0);
+                    const imageData = canvas.toDataURL('image/png');
 
                     if (pageIndex > 0) {
                         pdf.addPage();
                     }
-                    pdf.addImage(imageData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+                    pdf.addImage(imageData, 'PNG', 0, 0, 210, 297);
                 } finally {
                     if (document.body.contains(clone)) {
                         document.body.removeChild(clone);
@@ -300,6 +300,41 @@ const App: React.FC = () => {
             alert('PDF 저장 중 오류가 발생했습니다.');
         } finally {
             setIsSavingPdf(false);
+        }
+    };
+
+    const handleSaveAllPagesAsImages = async () => {
+        if (isSavingImage || workers.length === 0) return;
+        setIsSavingImage(true);
+
+        const workersPerPage = printMode === 'LIST' ? 4 : 1;
+        const totalPages = Math.ceil(workers.length / workersPerPage);
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+        try {
+            for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                const pageId = `print-page-${pageIndex}`;
+                const clone = createPageCloneForExport(pageId);
+                if (!clone) continue;
+
+                try {
+                    const canvas = await renderCloneCanvas(clone);
+                    const image = canvas.toDataURL('image/png');
+                    const link = document.createElement('a');
+                    link.href = image;
+                    link.download = `Hwigang_Worker_List_${dateStr}_p${pageIndex + 1}.png`;
+                    link.click();
+                } finally {
+                    if (document.body.contains(clone)) {
+                        document.body.removeChild(clone);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Image generation failed', error);
+            alert('이미지 저장 중 오류가 발생했습니다.');
+        } finally {
+            setIsSavingImage(false);
         }
     };
 
@@ -882,6 +917,14 @@ const App: React.FC = () => {
                     >
                         <Printer size={18} className="mr-2"/>
                         {isSavingPdf ? 'PDF 생성 중...' : 'PDF 저장'}
+                    </button>
+                    <button
+                        onClick={handleSaveAllPagesAsImages}
+                        disabled={isSavingImage}
+                        className="flex-1 md:flex-none flex items-center justify-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold transition-all"
+                    >
+                        <ImageIcon size={18} className="mr-2"/>
+                        {isSavingImage ? '이미지 생성 중...' : '이미지 저장'}
                     </button>
                     <button
                         onClick={handlePrint}
