@@ -27,10 +27,17 @@ export const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onSave, on
 
   // Initialize Image
   useEffect(() => {
+    let isDisposed = false;
     const img = new Image();
     img.src = imageSrc;
     img.onload = () => {
+        if (isDisposed) return;
         setImage(img);
+    };
+    return () => {
+      isDisposed = true;
+      img.onload = null;
+      img.onerror = null;
     };
   }, [imageSrc]);
 

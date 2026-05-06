@@ -15,8 +15,6 @@ const generateId = () => {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
 };
 
-const APP_BUILD_MARKER = 'build-2026-05-06-verify-01';
-
 const App: React.FC = () => {
     const LOCAL_WORKERS_KEY = 'hwigang_workers_v1';
     const isApiKeyConfigured = Boolean(process.env.API_KEY);
@@ -61,6 +59,8 @@ const App: React.FC = () => {
     const [globalError, setGlobalError] = useState<GlobalErrorInfo | null>(null);
     const [isApiGuideOpen, setIsApiGuideOpen] = useState(false);
     const [isApiBannerDismissed, setIsApiBannerDismissed] = useState(false);
+    const errorToastTimerRef = useRef<number | null>(null);
+    const printResetTimerRef = useRef<number | null>(null);
 
     const applyListPreset = () => {
         setPrintMode('LIST');
@@ -95,6 +95,8 @@ const App: React.FC = () => {
 
   // Initialize
   useEffect(() => {
+    let isDisposed = false;
+
         try {
             const savedWorkers = localStorage.getItem(LOCAL_WORKERS_KEY);
             if (savedWorkers) {
@@ -121,6 +123,7 @@ const App: React.FC = () => {
             async (position) => {
                 const { latitude, longitude } = position.coords;
                 const weatherData = await fetchLocalWeather(latitude, longitude);
+                if (isDisposed) return;
                 setWeather(prev => ({
                     ...prev,
                     ...weatherData,
@@ -129,6 +132,7 @@ const App: React.FC = () => {
                 }));
             },
             (err) => {
+                if (isDisposed) return;
                 setWeather(prev => ({ ...prev, loading: false, error: '위치 권한 필요', locationName: '위치 미수신' }));
             }
         );
@@ -136,7 +140,10 @@ const App: React.FC = () => {
         setWeather(prev => ({ ...prev, loading: false, error: 'GPS 미지원', locationName: '-' }));
     }
 
-    return () => clearInterval(timer);
+    return () => {
+      isDisposed = true;
+      clearInterval(timer);
+    };
   }, []);
 
     useEffect(() => {
@@ -153,11 +160,20 @@ const App: React.FC = () => {
             const message = customEvent.detail?.message || 'AI 처리 중 오류가 발생했습니다.';
             const code = customEvent.detail?.code || 'UNKNOWN';
             setGlobalError({ message, code });
-            setTimeout(() => setGlobalError(null), 5000);
+            if (errorToastTimerRef.current) {
+                window.clearTimeout(errorToastTimerRef.current);
+            }
+            errorToastTimerRef.current = window.setTimeout(() => setGlobalError(null), 5000);
         };
 
         window.addEventListener('gemini-error', handleGeminiError as EventListener);
-        return () => window.removeEventListener('gemini-error', handleGeminiError as EventListener);
+        return () => {
+            window.removeEventListener('gemini-error', handleGeminiError as EventListener);
+            if (errorToastTimerRef.current) {
+                window.clearTimeout(errorToastTimerRef.current);
+                errorToastTimerRef.current = null;
+            }
+        };
     }, []);
 
   const addWorker = () => {
@@ -208,9 +224,20 @@ const App: React.FC = () => {
         try {
             window.print();
         } finally {
-            setTimeout(() => setIsPrinting(false), 300);
+                        if (printResetTimerRef.current) {
+                                window.clearTimeout(printResetTimerRef.current);
+                        }
+                        printResetTimerRef.current = window.setTimeout(() => setIsPrinting(false), 300);
         }
   };
+
+    useEffect(() => {
+        return () => {
+            if (printResetTimerRef.current) {
+                window.clearTimeout(printResetTimerRef.current);
+            }
+        };
+    }, []);
 
     const createPageCloneForExport = (pageElementId: string): HTMLElement | null => {
         const element = document.getElementById(pageElementId);
@@ -302,41 +329,6 @@ const App: React.FC = () => {
             alert('PDF 저장 중 오류가 발생했습니다.');
         } finally {
             setIsSavingPdf(false);
-        }
-    };
-
-    const handleSaveAllPagesAsImages = async () => {
-        if (isSavingImage || workers.length === 0) return;
-        setIsSavingImage(true);
-
-        const workersPerPage = printMode === 'LIST' ? 4 : 1;
-        const totalPages = Math.ceil(workers.length / workersPerPage);
-        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-
-        try {
-            for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
-                const pageId = `print-page-${pageIndex}`;
-                const clone = createPageCloneForExport(pageId);
-                if (!clone) continue;
-
-                try {
-                    const canvas = await renderCloneCanvas(clone);
-                    const image = canvas.toDataURL('image/png');
-                    const link = document.createElement('a');
-                    link.href = image;
-                    link.download = `Hwigang_Worker_List_${dateStr}_p${pageIndex + 1}.png`;
-                    link.click();
-                } finally {
-                    if (document.body.contains(clone)) {
-                        document.body.removeChild(clone);
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Image generation failed', error);
-            alert('이미지 저장 중 오류가 발생했습니다.');
-        } finally {
-            setIsSavingImage(false);
         }
     };
 
@@ -447,6 +439,41 @@ const App: React.FC = () => {
         setIsSavingImage(false);
     }
   };
+
+    const handleSaveAllPagesAsImages = async () => {
+        if (isSavingImage || workers.length === 0) return;
+        setIsSavingImage(true);
+
+        const workersPerPage = printMode === 'LIST' ? 4 : 1;
+        const totalPages = Math.ceil(workers.length / workersPerPage);
+
+        try {
+            for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                const pageId = `print-page-${pageIndex}`;
+                const clone = createPageCloneForExport(pageId);
+                if (!clone) continue;
+
+                try {
+                    const canvas = await renderCloneCanvas(clone);
+                    const image = canvas.toDataURL('image/png');
+                    const link = document.createElement('a');
+                    link.href = image;
+                    link.download = `Hwigang_Worker_List_Page_${pageIndex + 1}.png`;
+                    link.click();
+                    await new Promise((resolve) => setTimeout(resolve, 120));
+                } finally {
+                    if (document.body.contains(clone)) {
+                        document.body.removeChild(clone);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('All image generation failed', err);
+            alert('전체 이미지 저장 중 오류가 발생했습니다.');
+        } finally {
+            setIsSavingImage(false);
+        }
+    };
 
   // --- Bulk Upload Logic (Optimized) ---
   const handleBulkUploadClick = () => {
@@ -750,10 +777,6 @@ const App: React.FC = () => {
                       <span className="text-[10px] uppercase font-bold tracking-wider">Project Lead</span>
                       <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-xs">박성훈 부장</span>
                   </div>
-                  <div className="hidden lg:flex items-center gap-1.5 border-l border-slate-200 pl-4 text-slate-500">
-                      <span className="text-[10px] uppercase font-bold tracking-wider">Build</span>
-                      <span className="font-mono text-[11px] text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{APP_BUILD_MARKER}</span>
-                  </div>
               </div>
           </div>
       </div>
@@ -929,8 +952,8 @@ const App: React.FC = () => {
                         disabled={isSavingImage}
                         className="flex-1 md:flex-none flex items-center justify-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold transition-all"
                     >
-                        <ImageIcon size={18} className="mr-2"/>
-                        {isSavingImage ? '이미지 생성 중...' : '이미지 저장'}
+                        <ImageIcon size={16} className="mr-2"/>
+                        {isSavingImage ? '이미지 생성 중...' : '전체 이미지 저장'}
                     </button>
                     <button
                         onClick={handlePrint}

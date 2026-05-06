@@ -66,9 +66,10 @@ export const extractWorkerInfo = async (imageBase64: string): Promise<ExtractedD
     const maxAttempts = 4;
 
     while (attempt < maxAttempts) {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       try {
         const timeoutPromise = new Promise<null>((_, reject) => {
-            setTimeout(() => reject(new Error("Request timed out")), 20000);
+          timeoutId = setTimeout(() => reject(new Error("Request timed out")), 20000);
         });
 
         const apiCallPromise = ai.models.generateContent({
@@ -141,6 +142,10 @@ export const extractWorkerInfo = async (imageBase64: string): Promise<ExtractedD
         console.error("Gemini Extraction Error:", JSON.stringify(error, null, 2));
         lastErrorType = lastErrorType === 'UNKNOWN' ? 'UNKNOWN' : lastErrorType;
         break;
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
       }
     }
   }
