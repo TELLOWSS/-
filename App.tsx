@@ -8,6 +8,7 @@ import { extractWorkerInfo } from './services/geminiService';
 import { cropImageFromBox, resizeImage } from './utils/imageUtils';
 import { fetchLocalWeather, getWeatherDescription, WeatherData } from './utils/weatherUtils';
 import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 // Simple UUID generator fallback
 const generateId = () => {
@@ -15,6 +16,7 @@ const generateId = () => {
 };
 
 const App: React.FC = () => {
+    const LOCAL_WORKERS_KEY = 'hwigang_workers_v1';
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [view, setView] = useState<AppView>(AppView.EDITOR);
   const [printMode, setPrintMode] = useState<PrintMode>('LIST'); // Default to 4 per page
@@ -45,12 +47,46 @@ const App: React.FC = () => {
   
   // Save Image Loading State
   const [isSavingImage, setIsSavingImage] = useState(false);
+    const [isPrinting, setIsPrinting] = useState(false);
+    const [isSavingPdf, setIsSavingPdf] = useState(false);
+    const [pagePaddingMm, setPagePaddingMm] = useState(15);
+    const [contentScale, setContentScale] = useState(1);
+
+    const applyListPreset = () => {
+        setPrintMode('LIST');
+        setPagePaddingMm(14);
+        setContentScale(0.98);
+    };
+
+    const applyDetailPreset = () => {
+        setPrintMode('DETAIL');
+        setPagePaddingMm(16);
+        setContentScale(1);
+    };
+
+    const applyDefaultPreset = () => {
+        setPagePaddingMm(15);
+        setContentScale(1);
+    };
 
   // Initialize
   useEffect(() => {
-    if (workers.length === 0) {
-      addWorker();
-    }
+        try {
+            const savedWorkers = localStorage.getItem(LOCAL_WORKERS_KEY);
+            if (savedWorkers) {
+                const parsed = JSON.parse(savedWorkers);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setWorkers(parsed);
+                } else {
+                    addWorker();
+                }
+            } else {
+                addWorker();
+            }
+        } catch (error) {
+            console.error('Failed to load local data:', error);
+            addWorker();
+        }
     
     // Clock Interval
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -78,6 +114,14 @@ const App: React.FC = () => {
 
     return () => clearInterval(timer);
   }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(LOCAL_WORKERS_KEY, JSON.stringify(workers));
+        } catch (error) {
+            console.error('Failed to save local data:', error);
+        }
+    }, [workers]);
 
   const addWorker = () => {
     const newWorker: WorkerData = {
@@ -114,12 +158,107 @@ const App: React.FC = () => {
   };
 
   const handlePrint = () => {
-    // Wait for a brief moment to ensure any pending renders (like hiding overlays) might complete, 
-    // although with CSS media queries this is usually instant.
-    setTimeout(() => {
-        window.print();
-    }, 100);
+        if (isPrinting) return;
+        setIsPrinting(true);
+        try {
+            window.print();
+        } finally {
+            setTimeout(() => setIsPrinting(false), 300);
+        }
   };
+
+    const createPageCloneForExport = (pageElementId: string): HTMLElement | null => {
+        const element = document.getElementById(pageElementId);
+        if (!element) {
+            return null;
+        }
+
+        const clone = element.cloneNode(true) as HTMLElement;
+        const overlays = clone.querySelectorAll('.no-print-overlay');
+        overlays.forEach(el => el.remove());
+
+        clone.style.width = '794px';
+        clone.style.height = '1123px';
+        clone.style.position = 'absolute';
+        clone.style.top = '0';
+        clone.style.left = '0';
+        clone.style.zIndex = '-9999';
+        clone.style.margin = '0';
+        clone.style.transform = 'none';
+        clone.style.backgroundColor = '#ffffff';
+
+        document.body.appendChild(clone);
+        return clone;
+    };
+
+    const renderCloneCanvas = async (clone: HTMLElement) => {
+        if (document.fonts?.ready) {
+            await document.fonts.ready;
+        }
+
+        const clonedImages = Array.from(clone.querySelectorAll('img'));
+        await Promise.all(
+            clonedImages.map((img) => {
+                if (img.complete) return Promise.resolve();
+                return new Promise<void>((resolve) => {
+                    img.onload = () => resolve();
+                    img.onerror = () => resolve();
+                });
+            })
+        );
+
+        return html2canvas(clone, {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff',
+            width: 794,
+            height: 1123,
+            scrollY: 0,
+            windowHeight: 1123,
+            windowWidth: 794
+        });
+    };
+
+    const handleSavePdf = async () => {
+        if (isSavingPdf || workers.length === 0) return;
+        setIsSavingPdf(true);
+
+        const workersPerPage = printMode === 'LIST' ? 4 : 1;
+        const totalPages = Math.ceil(workers.length / workersPerPage);
+
+        try {
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+            for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                const pageId = `print-page-${pageIndex}`;
+                const clone = createPageCloneForExport(pageId);
+                if (!clone) continue;
+
+                try {
+                    const canvas = await renderCloneCanvas(clone);
+                    const imageData = canvas.toDataURL('image/jpeg', 1.0);
+
+                    if (pageIndex > 0) {
+                        pdf.addPage();
+                    }
+                    pdf.addImage(imageData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+                } finally {
+                    if (document.body.contains(clone)) {
+                        document.body.removeChild(clone);
+                    }
+                }
+            }
+
+            const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            pdf.save(`Hwigang_Worker_List_${dateStr}.pdf`);
+        } catch (error) {
+            console.error('PDF generation failed', error);
+            alert('PDF 저장 중 오류가 발생했습니다.');
+        } finally {
+            setIsSavingPdf(false);
+        }
+    };
 
   // --- Backup & Restore Logic ---
   const handleBackup = () => {
@@ -136,6 +275,43 @@ const App: React.FC = () => {
   const handleRestoreClick = () => {
     restoreInputRef.current?.click();
   };
+
+    const handleLocalSave = () => {
+        try {
+            localStorage.setItem(LOCAL_WORKERS_KEY, JSON.stringify(workers));
+            alert('로컬 저장이 완료되었습니다.');
+        } catch (error) {
+            console.error('Local save failed:', error);
+            alert('로컬 저장 중 오류가 발생했습니다.');
+        }
+    };
+
+    const handleLocalLoad = () => {
+        try {
+            const savedWorkers = localStorage.getItem(LOCAL_WORKERS_KEY);
+            if (!savedWorkers) {
+                alert('저장된 로컬 데이터가 없습니다.');
+                return;
+            }
+
+            const parsed = JSON.parse(savedWorkers);
+            if (Array.isArray(parsed)) {
+                if(window.confirm('현재 작성 중인 데이터가 모두 삭제되고 로컬 저장 데이터로 대체됩니다. 진행하시겠습니까?')) {
+                    if (parsed.length === 0) {
+                        addWorker();
+                    } else {
+                        setWorkers(parsed);
+                    }
+                    alert('로컬 데이터 불러오기가 완료되었습니다.');
+                }
+            } else {
+                alert('로컬 데이터 형식이 올바르지 않습니다.');
+            }
+        } catch (error) {
+            console.error('Local load failed:', error);
+            alert('로컬 데이터 불러오기 중 오류가 발생했습니다.');
+        }
+    };
 
   const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -167,46 +343,14 @@ const App: React.FC = () => {
     if (isSavingImage) return;
     setIsSavingImage(true);
 
-    const element = document.getElementById(pageElementId);
-    if (!element) {
+    const clone = createPageCloneForExport(pageElementId);
+    if (!clone) {
         setIsSavingImage(false);
         return;
     }
-    
-    // 1. Clone the node
-    const clone = element.cloneNode(true) as HTMLElement;
-    
-    // 2. Clean up UI elements (buttons) from the clone
-    const overlays = clone.querySelectorAll('.no-print-overlay');
-    overlays.forEach(el => el.remove());
-
-    // 3. Set precise A4 pixel dimensions (210mm @ 96dpi ≈ 794px)
-    // This forces the clone to have the exact same layout structure as print, 
-    // fixing the discrepancy between screen (preview) and saved image.
-    clone.style.width = '794px'; 
-    clone.style.height = '1123px'; // 297mm @ 96dpi
-    clone.style.position = 'absolute';
-    clone.style.top = '0';
-    clone.style.left = '0';
-    clone.style.zIndex = '-9999'; // Hide behind everything
-    clone.style.margin = '0';
-    clone.style.transform = 'none'; // Ensure no scaling on the element itself
-    clone.style.backgroundColor = '#ffffff';
-
-    document.body.appendChild(clone);
 
     try {
-        const canvas = await html2canvas(clone, { 
-            scale: 2, // 2x resolution for high quality (Retina)
-            useCORS: true, 
-            logging: false,
-            backgroundColor: '#ffffff',
-            width: 794,
-            height: 1123,
-            scrollY: 0, // Prevent scrolling offset issues
-            windowHeight: 1123,
-            windowWidth: 794
-        });
+        const canvas = await renderCloneCanvas(clone);
         
         const image = canvas.toDataURL("image/png");
         const link = document.createElement("a");
@@ -479,6 +623,12 @@ const App: React.FC = () => {
 
               <div className="flex items-center gap-4">
                   <div className="flex items-center gap-1 border-r border-slate-200 pr-4 mr-1">
+                        <button onClick={handleLocalSave} className="text-slate-400 hover:text-slate-700 px-2 py-1 rounded transition-colors" title="로컬 저장">
+                            <Save size={14} />
+                        </button>
+                        <button onClick={handleLocalLoad} className="text-slate-400 hover:text-slate-700 px-2 py-1 rounded transition-colors" title="로컬 불러오기">
+                            <Database size={14} />
+                        </button>
                         <input type="file" ref={restoreInputRef} accept=".json" className="hidden" onChange={handleRestoreFile} />
                         <button onClick={handleRestoreClick} className="text-slate-400 hover:text-slate-700 px-2 py-1 rounded transition-colors" title="복구">
                             <Upload size={14} />
@@ -600,13 +750,73 @@ const App: React.FC = () => {
 
                 <div className="h-8 w-px bg-slate-700 hidden md:block"></div>
 
+                <div className="flex flex-col gap-1 min-w-[220px]">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-slate-300 min-w-[62px]">추천값</span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={applyListPreset}
+                                className="px-2 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200"
+                            >
+                                리스트
+                            </button>
+                            <button
+                                onClick={applyDetailPreset}
+                                className="px-2 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200"
+                            >
+                                상세
+                            </button>
+                            <button
+                                onClick={applyDefaultPreset}
+                                className="px-2 py-1 text-[11px] rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+                            >
+                                기본
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className="text-[11px] text-slate-300 min-w-[62px]">여백</label>
+                        <input
+                            type="range"
+                            min={10}
+                            max={20}
+                            step={1}
+                            value={pagePaddingMm}
+                            onChange={(e) => setPagePaddingMm(Number(e.target.value))}
+                            className="w-full accent-yellow-500"
+                        />
+                        <span className="text-[11px] text-slate-300 w-10 text-right">{pagePaddingMm}mm</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className="text-[11px] text-slate-300 min-w-[62px]">폰트/배율</label>
+                        <input
+                            type="range"
+                            min={0.9}
+                            max={1.1}
+                            step={0.01}
+                            value={contentScale}
+                            onChange={(e) => setContentScale(Number(e.target.value))}
+                            className="w-full accent-yellow-500"
+                        />
+                        <span className="text-[11px] text-slate-300 w-10 text-right">{Math.round(contentScale * 100)}%</span>
+                    </div>
+                </div>
+
                 <div className="flex items-center gap-3 w-full md:w-auto">
                     <button
-                        onClick={handlePrint}
+                        onClick={handleSavePdf}
+                        disabled={isSavingPdf}
                         className="flex-1 md:flex-none flex items-center justify-center px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-all shadow-lg hover:shadow-blue-500/30"
                     >
                         <Printer size={18} className="mr-2"/>
-                        PDF 저장 / 인쇄
+                        {isSavingPdf ? 'PDF 생성 중...' : 'PDF 저장'}
+                    </button>
+                    <button
+                        onClick={handlePrint}
+                        disabled={isPrinting}
+                        className="flex-1 md:flex-none flex items-center justify-center px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-bold transition-all"
+                    >
+                        {isPrinting ? '인쇄 준비 중...' : '브라우저 인쇄'}
                     </button>
                     <button
                         onClick={() => setView(AppView.EDITOR)}
@@ -627,6 +837,8 @@ const App: React.FC = () => {
                             mode={printMode}
                             isPreview={true} 
                             onSavePageAsImage={handleSavePageAsImage}
+                                     pagePaddingMm={pagePaddingMm}
+                                     contentScale={contentScale}
                          />
                     </div>
                  </div>
@@ -636,7 +848,7 @@ const App: React.FC = () => {
 
         {/* Actual Print Content (Hidden on Screen, Visible on Print) */}
         <div className="print-only">
-          <PrintLayout workers={workers} mode={printMode} isPreview={false} />
+                    <PrintLayout workers={workers} mode={printMode} isPreview={false} pagePaddingMm={pagePaddingMm} contentScale={contentScale} />
         </div>
 
       </main>

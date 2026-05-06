@@ -7,9 +7,11 @@ interface PrintLayoutProps {
   mode: PrintMode;
   isPreview?: boolean;
   onSavePageAsImage?: (elementId: string) => void;
+    pagePaddingMm?: number;
+    contentScale?: number;
 }
 
-export const PrintLayout: React.FC<PrintLayoutProps> = ({ workers, mode, isPreview = false, onSavePageAsImage }) => {
+export const PrintLayout: React.FC<PrintLayoutProps> = ({ workers, mode, isPreview = false, onSavePageAsImage, pagePaddingMm = 15, contentScale = 1 }) => {
   // Mode configuration
   const WORKERS_PER_PAGE = mode === 'LIST' ? 4 : 1;
   const pages = [];
@@ -47,7 +49,20 @@ export const PrintLayout: React.FC<PrintLayoutProps> = ({ workers, mode, isPrevi
                 </div>
             )}
             
-            <div id={pageId} className={`a4-page relative flex flex-col bg-white ${isPreview ? 'rounded-b-lg shadow-2xl' : ''}`}>
+            <div
+                id={pageId}
+                className={`a4-page relative bg-white ${isPreview ? 'rounded-b-lg shadow-2xl' : ''}`}
+                style={{ padding: `${pagePaddingMm}mm` }}
+            >
+                <div
+                    className="relative flex flex-col h-full"
+                    style={{
+                        transform: `scale(${contentScale})`,
+                        transformOrigin: 'top left',
+                        width: `${100 / contentScale}%`,
+                        height: `${100 / contentScale}%`
+                    }}
+                >
                 
                 {/* Header */}
                 <header className="border-b-2 border-slate-900 pb-3 mb-4 pt-4 shrink-0">
@@ -186,6 +201,7 @@ export const PrintLayout: React.FC<PrintLayoutProps> = ({ workers, mode, isPrevi
                         <span>Page {pageIndex + 1} / {pages.length}</span>
                     </div>
                 </footer>
+                </div>
             </div>
           </div>
         );
