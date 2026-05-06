@@ -7,6 +7,14 @@ const MODEL_CANDIDATES = [
   'gemini-2.5-flash-lite'
 ];
 
+type GeminiErrorCode = 'API_KEY_MISSING' | 'MODEL_NOT_FOUND' | 'QUOTA_EXCEEDED' | 'UNKNOWN';
+
+const emitGeminiError = (message: string, code: GeminiErrorCode = 'UNKNOWN') => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('gemini-error', { detail: { message, code } }));
+  }
+};
+
 const SYSTEM_INSTRUCTION = `
 당신은 건설 현장 서류(신분증, 이수증) 인식 및 분류 전문가입니다.
 이미지에는 **하나 또는 여러 개의 문서**가 포함되어 있을 수 있습니다 (예: 신분증과 이수증이 나란히 놓여있음).
@@ -28,11 +36,13 @@ export const extractWorkerInfo = async (imageBase64: string): Promise<ExtractedD
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
     console.warn("API Key is missing.");
+    emitGeminiError('API 키가 설정되지 않았습니다. .env.local의 GEMINI_API_KEY를 확인하세요.', 'API_KEY_MISSING');
     return [];
   }
 
   const cleanBase64 = imageBase64.split(',')[1] || imageBase64;
   const ai = new GoogleGenAI({ apiKey });
+  let lastErrorType: 'NOT_FOUND' | 'QUOTA' | 'UNKNOWN' = 'UNKNOWN';
 
   const isQuotaError = (error: any) => {
     return error?.status === 429 ||
@@ -110,11 +120,13 @@ export const extractWorkerInfo = async (imageBase64: string): Promise<ExtractedD
 
       } catch (error: any) {
         if (isNotFoundError(error)) {
+          lastErrorType = 'NOT_FOUND';
           console.warn(`Model not available: ${modelName}. Trying next model...`);
           break;
         }
 
         if (isQuotaError(error) && attempt < maxAttempts - 1) {
+          lastErrorType = 'QUOTA';
           const delay = 2000 * Math.pow(2, attempt);
           console.warn(`Quota limit hit (429) on ${modelName}. Retrying in ${delay}ms... (Attempt ${attempt + 1}/${maxAttempts})`);
           await new Promise(resolve => setTimeout(resolve, delay));
@@ -122,12 +134,24 @@ export const extractWorkerInfo = async (imageBase64: string): Promise<ExtractedD
           continue;
         }
 
+        if (isQuotaError(error)) {
+          lastErrorType = 'QUOTA';
+        }
+
         console.error("Gemini Extraction Error:", JSON.stringify(error, null, 2));
+        lastErrorType = lastErrorType === 'UNKNOWN' ? 'UNKNOWN' : lastErrorType;
         break;
       }
     }
   }
 
+  if (lastErrorType === 'NOT_FOUND') {
+    emitGeminiError('AI 모델 경로를 찾을 수 없습니다(404). 잠시 후 다시 시도하거나 모델 권한을 확인하세요.', 'MODEL_NOT_FOUND');
+  } else if (lastErrorType === 'QUOTA') {
+    emitGeminiError('AI 사용량 한도(Quota)를 초과했습니다. 잠시 후 다시 시도하세요.', 'QUOTA_EXCEEDED');
+  } else {
+    emitGeminiError('AI 모델에 연결할 수 없습니다. 잠시 후 다시 시도하거나 API 키/모델 권한을 확인하세요.', 'UNKNOWN');
+  }
   console.error('No available Gemini model could process the request.');
   return [];
 };

@@ -17,6 +17,11 @@ const generateId = () => {
 
 const App: React.FC = () => {
     const LOCAL_WORKERS_KEY = 'hwigang_workers_v1';
+    const isApiKeyConfigured = Boolean(process.env.API_KEY);
+    type GlobalErrorInfo = {
+        message: string;
+        code?: 'API_KEY_MISSING' | 'MODEL_NOT_FOUND' | 'QUOTA_EXCEEDED' | 'UNKNOWN';
+    };
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [view, setView] = useState<AppView>(AppView.EDITOR);
   const [printMode, setPrintMode] = useState<PrintMode>('LIST'); // Default to 4 per page
@@ -51,6 +56,9 @@ const App: React.FC = () => {
     const [isSavingPdf, setIsSavingPdf] = useState(false);
     const [pagePaddingMm, setPagePaddingMm] = useState(15);
     const [contentScale, setContentScale] = useState(1);
+    const [globalError, setGlobalError] = useState<GlobalErrorInfo | null>(null);
+    const [isApiGuideOpen, setIsApiGuideOpen] = useState(false);
+    const [isApiBannerDismissed, setIsApiBannerDismissed] = useState(false);
 
     const applyListPreset = () => {
         setPrintMode('LIST');
@@ -67,6 +75,20 @@ const App: React.FC = () => {
     const applyDefaultPreset = () => {
         setPagePaddingMm(15);
         setContentScale(1);
+    };
+
+    const showApiKeyGuide = () => {
+        setIsApiGuideOpen(true);
+    };
+
+    const handleCopyEnvExample = async () => {
+        try {
+            await navigator.clipboard.writeText('GEMINI_API_KEY=여기에_본인_API_KEY');
+            alert('.env.local 예시가 클립보드에 복사되었습니다.');
+        } catch (error) {
+            console.error('Clipboard copy failed:', error);
+            alert('복사에 실패했습니다. 수동으로 복사해 주세요.');
+        }
     };
 
   // Initialize
@@ -122,6 +144,19 @@ const App: React.FC = () => {
             console.error('Failed to save local data:', error);
         }
     }, [workers]);
+
+    useEffect(() => {
+        const handleGeminiError = (event: Event) => {
+            const customEvent = event as CustomEvent<{ message?: string; code?: 'API_KEY_MISSING' | 'MODEL_NOT_FOUND' | 'QUOTA_EXCEEDED' | 'UNKNOWN' }>;
+            const message = customEvent.detail?.message || 'AI 처리 중 오류가 발생했습니다.';
+            const code = customEvent.detail?.code || 'UNKNOWN';
+            setGlobalError({ message, code });
+            setTimeout(() => setGlobalError(null), 5000);
+        };
+
+        window.addEventListener('gemini-error', handleGeminiError as EventListener);
+        return () => window.removeEventListener('gemini-error', handleGeminiError as EventListener);
+    }, []);
 
   const addWorker = () => {
     const newWorker: WorkerData = {
@@ -562,6 +597,35 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen relative bg-slate-50 font-sans">
+            {!isApiKeyConfigured && !isApiBannerDismissed && (
+                <div className="no-print sticky top-0 z-40 bg-amber-500 text-slate-950 border-b border-amber-600 shadow-sm">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-start md:items-center justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                            <Info size={18} className="mt-0.5 shrink-0" />
+                            <div>
+                                <div className="font-bold text-sm">AI 기능을 사용하려면 Gemini API 키 설정이 필요합니다.</div>
+                                <div className="text-xs text-slate-900/80 mt-0.5">`.env.local`에 `GEMINI_API_KEY`를 추가하면 신분증/이수증 자동 분석을 사용할 수 있습니다.</div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                onClick={showApiKeyGuide}
+                                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-colors"
+                            >
+                                설정 가이드
+                            </button>
+                            <button
+                                onClick={() => setIsApiBannerDismissed(true)}
+                                className="p-1.5 rounded-md hover:bg-amber-400/70 transition-colors"
+                                title="배너 닫기"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
       
       {/* 1. TOP GNB (Brand & Primary Actions) */}
       <header className="no-print sticky top-0 z-30 bg-slate-900 border-b border-slate-800 shadow-md h-16">
@@ -881,6 +945,82 @@ const App: React.FC = () => {
             </div>
         </div>
       )}
+
+            {globalError && (
+                <div className="fixed bottom-6 right-6 z-[70] max-w-md bg-red-600 text-white px-4 py-3 rounded-lg shadow-2xl border border-red-500">
+                    <div className="flex items-start gap-2">
+                        <Info size={16} className="mt-0.5 shrink-0" />
+                        <div className="flex-1">
+                            <span className="text-sm font-medium leading-5 block">{globalError.message}</span>
+                            {globalError.code === 'API_KEY_MISSING' && (
+                                <button
+                                    onClick={showApiKeyGuide}
+                                    className="mt-2 text-xs font-bold bg-white/20 hover:bg-white/30 px-2 py-1 rounded transition-colors"
+                                >
+                                    설정 가이드
+                                </button>
+                            )}
+                        </div>
+                        <button
+                            onClick={() => setGlobalError(null)}
+                            className="text-white/90 hover:text-white transition-colors"
+                            title="닫기"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {isApiGuideOpen && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+                        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900">API 키 설정 가이드</h3>
+                                <p className="text-sm text-slate-500 mt-1">Gemini 연동을 위해 한 번만 설정하면 됩니다.</p>
+                            </div>
+                            <button
+                                onClick={() => setIsApiGuideOpen(false)}
+                                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="px-6 py-5 space-y-4 text-sm text-slate-700">
+                            <ol className="list-decimal pl-5 space-y-2">
+                                <li>프로젝트 루트에 <span className="font-bold">.env.local</span> 파일을 만듭니다.</li>
+                                <li>아래 내용을 한 줄로 추가합니다.</li>
+                                <li>저장 후 개발 서버를 다시 시작합니다.</li>
+                            </ol>
+
+                            <div className="rounded-xl bg-slate-900 text-slate-100 p-4 font-mono text-sm overflow-x-auto">
+                                GEMINI_API_KEY=여기에_본인_API_KEY
+                            </div>
+
+                            <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-900">
+                                참고: 이미 생성된 [.env.example](.env.example) 파일을 복사해서 `.env.local`로 이름만 바꿔도 됩니다.
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+                            <button
+                                onClick={handleCopyEnvExample}
+                                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-bold transition-colors"
+                            >
+                                예시 복사
+                            </button>
+                            <button
+                                onClick={() => setIsApiGuideOpen(false)}
+                                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-sm font-bold transition-colors"
+                            >
+                                닫기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
     </div>
   );
 };

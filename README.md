@@ -15,6 +15,6 @@ AI Studio 공유 링크는 만료되거나 권한에 따라 404가 발생할 수
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Copy [.env.example](.env.example) to `.env.local` and set `GEMINI_API_KEY`
 3. Run the app:
    `npm run dev`
