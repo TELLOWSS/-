@@ -194,6 +194,14 @@ const App: React.FC = () => {
 
   const handlePrint = () => {
         if (isPrinting) return;
+
+        alert(
+            '브라우저 인쇄 안내\n\n' +
+            '- 상단 날짜/앱명, 하단 URL/페이지 번호는 브라우저 인쇄의 기본 머리글/바닥글입니다.\n' +
+            '- 이 표기를 완전히 없애려면 [PDF 저장] 버튼을 사용하세요.\n' +
+            '- 브라우저 인쇄를 꼭 써야 한다면 인쇄 옵션에서 "머리글과 바닥글"을 끄세요.'
+        );
+
         setIsPrinting(true);
         try {
             window.print();
@@ -880,7 +888,7 @@ const App: React.FC = () => {
                         disabled={isPrinting}
                         className="flex-1 md:flex-none flex items-center justify-center px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-bold transition-all"
                     >
-                        {isPrinting ? '인쇄 준비 중...' : '브라우저 인쇄'}
+                        {isPrinting ? '인쇄 준비 중...' : '브라우저 인쇄(옵션영향)'}
                     </button>
                     <button
                         onClick={() => setView(AppView.EDITOR)}

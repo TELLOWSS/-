@@ -52,7 +52,11 @@ export const PrintLayout: React.FC<PrintLayoutProps> = ({ workers, mode, isPrevi
             <div
                 id={pageId}
                 className={`a4-page relative bg-white ${isPreview ? 'rounded-b-lg shadow-2xl' : ''}`}
-                style={{ padding: `${pagePaddingMm}mm` }}
+                style={{
+                    padding: `${pagePaddingMm}mm`,
+                    border: '1.5pt solid #0f172a',
+                    boxSizing: 'border-box'
+                }}
             >
                 <div
                     className="relative flex flex-col h-full"
